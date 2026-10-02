@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>시간표 변동 알림판</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#666; --line:#ddd; --bg:#fff; --accent:#0b57d0; --hl:#eef3fd; --err:#c62828; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e8; --muted:#9a9a9a; --line:#3a3a3a; --bg:#121212; --accent:#8ab4f8; --hl:#1c2533; --err:#f28b82; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Malgun Gothic", sans-serif; color:var(--fg); background:var(--bg); line-height:1.55; }
+  main { max-width:860px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:20px 0 8px; }
+  .muted { color:var(--muted); font-size:.9rem; } .err { color:var(--err); }
+  input, select, button { font:inherit; }
+  input, select { min-height:40px; padding:6px 8px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); width:100%; }
+  button { min-height:40px; padding:6px 12px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button[aria-pressed="true"] { font-weight:700; border-color:var(--accent); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:8px; }
+  label span { display:block; font-size:.85rem; font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  .row input { width:auto; flex:1 1 180px; }
+  .wrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:.95rem; min-width:560px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); }
+  tr.today td { background:var(--hl); font-weight:600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>시간표 변동 알림판 <span class="muted" id="todayCount"></span></h1>
+  <p class="muted">학생 정보는 입력하지 않습니다. 교사 이름 대신 약칭(예: 국어A)을 써도 됩니다. 기록은 이 브라우저에만 저장됩니다.</p>
+
+  <h2>변동 입력 (일과계)</h2>
+  <form id="form" novalidate>
+    <div class="grid">
+      <label><span>날짜 *</span><input type="date" id="date"></label>
+      <label><span>교시 *</span><select id="period"></select></label>
+      <label><span>학급 *</span><input type="text" id="cls" maxlength="10" placeholder="예: 2-3"></label>
+      <label><span>변경 전</span><input type="text" id="before" maxlength="40" placeholder="예: 국어 김교사"></label>
+      <label><span>변경 후 *</span><input type="text" id="after" maxlength="40" placeholder="예: 수학 이교사"></label>
+      <label><span>비고</span><input type="text" id="note" maxlength="60" placeholder="예: 출장 보강"></label>
+    </div>
+    <div class="row"><button type="submit" class="primary">추가</button><span id="formMsg" role="status"></span></div>
+  </form>
+
+  <h2>변동 보기</h2>
+  <div class="row" role="group" aria-label="보기 범위">
+    <button type="button" data-view="today" aria-pressed="true">오늘</button>
+    <button type="button" data-view="date" aria-pressed="false">날짜 선택</button>
+    <button type="button" data-view="all" aria-pressed="false">전체</button>
+    <input type="date" id="pickDate" aria-label="볼 날짜" hidden>
+  </div>
+  <div class="row">
+    <input type="text" id="teacher" placeholder="교사 이름(또는 약칭)으로 걸러 보기" aria-label="교사 이름 필터">
+  </div>
+  <div class="wrap">
+    <table>
+      <thead><tr><th>날짜</th><th>교시</th><th>학급</th><th>변경 전</th><th>변경 후</th><th>비고</th><th></th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <p class="muted" id="empty" hidden>표시할 변동이 없습니다.</p>
+  <div class="row"><button type="button" id="cleanup">지난 변동 정리</button><span class="muted" id="storeNote"></span></div>
+</main>
+<script>
+(function () {
+  var KEY = "dandi-example-timetable";
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function today() { var d = new Date(); return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  var TODAY = today();
+
+  var canStore = true;
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY) || "null"); if (Array.isArray(v)) return v; } catch (e) { /* 저장 불가 */ }
+    return [
+      { id: "s1", date: TODAY, period: 2, cls: "2-3", before: "국어 김교사", after: "수학 이교사", note: "교체" },
+      { id: "s2", date: TODAY, period: 5, cls: "1-1", before: "과학 박교사", after: "자습 감독 최교사", note: "출장 보강" }
+    ];
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(list)); canStore = true; } catch (e) { canStore = false; }
+    $("storeNote").textContent = canStore ? "" : "이 환경에서는 저장할 수 없어 새로고침하면 사라집니다.";
+  }
+  var list = load();
+  var view = "today";
+
+  for (var p = 1; p <= 7; p++) {
+    var o = document.createElement("option"); o.value = String(p); o.textContent = p + "교시"; $("period").appendChild(o);
+  }
+  $("date").value = TODAY; $("pickDate").value = TODAY;
+
+  $("form").onsubmit = function (e) {
+    e.preventDefault();
+    var item = {
+      id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      date: $("date").value, period: Number($("period").value), cls: $("cls").value.trim(),
+      before: $("before").value.trim(), after: $("after").value.trim(), note: $("note").value.trim()
+    };
+    var missing = [];
+    if (!item.date) missing.push("날짜");
+    if (!item.cls) missing.push("학급");
+    if (!item.after) missing.push("변경 후");
+    var msg = $("formMsg");
+    if (missing.length) { msg.className = "err"; msg.textContent = missing.join(", ") + " 칸을 채우십시오."; return; }
+    list.push(item); save(); render();
+    msg.className = "muted"; msg.textContent = item.date + " " + item.period + "교시 변동을 추가했습니다.";
+    $("cls").value = ""; $("before").value = ""; $("after").value = ""; $("note").value = "";
+  };
+
+  Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (b) {
+    b.onclick = function () {
+      view = b.getAttribute("data-view");
+      Array.prototype.forEach.call(document.querySelectorAll("[data-view]"), function (x) {
+        x.setAttribute("aria-pressed", String(x === b));
+      });
+      $("pickDate").hidden = view !== "date";
+      render();
+    };
+  });
+  $("pickDate").oninput = render;
+  $("teacher").oninput = render;
+
+  $("cleanup").onclick = function () {
+    var before = list.length;
+    list = list.filter(function (x) { return x.date >= TODAY; });
+    save(); render();
+    $("storeNote").textContent = (before - list.length) + "건의 지난 변동을 정리했습니다.";
+  };
+
+  function render() {
+    var q = $("teacher").value.trim();
+    var day = view === "today" ? TODAY : view === "date" ? $("pickDate").value : null;
+    var shown = list
+      .filter(function (x) { return !day || x.date === day; })
+      .filter(function (x) { return !q || (x.before + " " + x.after + " " + x.note).indexOf(q) >= 0; })
+      .sort(function (a, b) {
+        var at = a.date === TODAY ? 0 : 1, bt = b.date === TODAY ? 0 : 1;
+        return at - bt || a.date.localeCompare(b.date) || a.period - b.period;
+      });
+    var tb = $("rows"); tb.textContent = "";
+    shown.forEach(function (x) {
+      var tr = document.createElement("tr");
+      if (x.date === TODAY) tr.className = "today";
+      [x.date === TODAY ? x.date + " (오늘)" : x.date, x.period + "교시", x.cls, x.before || "-", x.after, x.note || "-"].forEach(function (v) {
+        var td = document.createElement("td"); td.textContent = v; tr.appendChild(td);
+      });
+      var td = document.createElement("td");
+      var del = document.createElement("button"); del.type = "button"; del.textContent = "삭제";
+      del.setAttribute("aria-label", x.date + " " + x.period + "교시 " + x.cls + " 변동 삭제");
+      del.onclick = function () { list = list.filter(function (y) { return y.id !== x.id; }); save(); render(); };
+      td.appendChild(del); tr.appendChild(td); tb.appendChild(tr);
+    });
+    $("empty").hidden = shown.length > 0;
+    var n = list.filter(function (x) { return x.date === TODAY; }).length;
+    $("todayCount").textContent = "(오늘 변동 " + n + "건)";
+  }
+
+  save(); render();
+})();
+</script>
+</body>
+</html>

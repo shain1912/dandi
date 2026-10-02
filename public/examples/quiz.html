@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OX 퀴즈</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#666; --line:#ddd; --bg:#fff; --accent:#0b57d0; --ok:#1b7f3b; --no:#c62828; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e8; --muted:#9a9a9a; --line:#3a3a3a; --bg:#121212; --accent:#8ab4f8; --ok:#81c995; --no:#f28b82; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Malgun Gothic", sans-serif; color:var(--fg); background:var(--bg); line-height:1.55; }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:20px 0 8px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  input, textarea, select, button { font:inherit; }
+  input[type=text], textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
+  button { min-height:44px; padding:6px 14px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  ol.items { padding-left:20px; } ol.items li { margin:6px 0; }
+  .big { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:16px 0; }
+  .big button { min-height:72px; font-size:1.8rem; font-weight:700; }
+  .statement { font-size:1.25rem; padding:16px; border:1px solid var(--line); border-radius:6px; }
+  .ok { color:var(--ok); font-weight:700; } .no { color:var(--no); font-weight:700; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>OX 퀴즈</h1>
+  <p class="muted">로그인 없이 바로 풀 수 있습니다. 학생 이름은 받지 않고, 점수는 이 화면에만 표시됩니다.</p>
+
+  <section id="edit">
+    <h2>문항 편집 (교사)</h2>
+    <label for="stmt">문장</label>
+    <input type="text" id="stmt" maxlength="200" placeholder="예: 물은 1기압에서 100도에 끓는다.">
+    <div class="row">
+      <span>정답</span>
+      <label><input type="radio" name="ans" value="O" checked> O</label>
+      <label><input type="radio" name="ans" value="X"> X</label>
+    </div>
+    <label for="expl">해설 (선택)</label>
+    <input type="text" id="expl" maxlength="200" placeholder="정답 뒤에 보여 줄 짧은 설명">
+    <div class="row">
+      <button type="button" id="add">문항 추가</button>
+      <span id="editMsg" class="muted" role="status"></span>
+    </div>
+    <ol class="items" id="items"></ol>
+    <div class="row">
+      <label><input type="checkbox" id="shuffle"> 문항 순서 섞기</label>
+      <button type="button" class="primary" id="start">퀴즈 시작</button>
+    </div>
+    <p class="muted" id="storeNote"></p>
+  </section>
+
+  <section id="play" hidden>
+    <p class="muted" id="progress"></p>
+    <div class="statement" id="question"></div>
+    <div class="big">
+      <button type="button" id="pickO" aria-label="O라고 답하기">O</button>
+      <button type="button" id="pickX" aria-label="X라고 답하기">X</button>
+    </div>
+    <p id="feedback" role="status"></p>
+    <div class="row"><button type="button" class="primary" id="next" hidden>다음 문항</button></div>
+  </section>
+
+  <section id="result" hidden>
+    <h2 id="score"></h2>
+    <div id="wrongWrap"><p>틀린 문항</p><ol class="items" id="wrong"></ol></div>
+    <div class="row">
+      <button type="button" class="primary" id="again">다시 풀기</button>
+      <button type="button" id="toEdit">문항 편집으로</button>
+    </div>
+  </section>
+</main>
+<script>
+(function () {
+  var KEY = "dandi-example-quiz";
+  var SAMPLE = [
+    { s: "물은 1기압에서 100도에 끓는다.", a: "O", e: "1기압에서 물의 끓는점은 100도입니다." },
+    { s: "대한민국의 수도는 부산이다.", a: "X", e: "대한민국의 수도는 서울입니다." },
+    { s: "거미는 곤충이다.", a: "X", e: "거미는 다리가 8개인 거미류입니다." }
+  ];
+  var canStore = true;
+  function load() {
+    try { var v = JSON.parse(localStorage.getItem(KEY) || "null"); return Array.isArray(v) ? v : SAMPLE.slice(); }
+    catch (e) { return SAMPLE.slice(); }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(items)); canStore = true; }
+    catch (e) { canStore = false; }
+    $("storeNote").textContent = canStore
+      ? "문항은 이 브라우저에만 저장됩니다."
+      : "이 환경에서는 저장할 수 없어 새로고침하면 문항이 처음 상태로 돌아갑니다.";
+  }
+  function $(id) { return document.getElementById(id); }
+
+  var items = load();
+  var order = [], idx = 0, correct = 0, wrongList = [];
+
+  function renderItems() {
+    var ol = $("items");
+    ol.textContent = "";
+    items.forEach(function (it, i) {
+      var li = document.createElement("li");
+      li.textContent = it.s + " (정답 " + it.a + ") ";
+      var del = document.createElement("button");
+      del.type = "button"; del.textContent = "삭제";
+      del.onclick = function () { items.splice(i, 1); save(); renderItems(); };
+      li.appendChild(del);
+      ol.appendChild(li);
+    });
+    $("start").disabled = items.length === 0;
+  }
+
+  $("add").onclick = function () {
+    var s = $("stmt").value.trim();
+    if (!s) { $("editMsg").textContent = "문장을 입력하십시오."; return; }
+    var a = document.querySelector('input[name="ans"]:checked').value;
+    items.push({ s: s, a: a, e: $("expl").value.trim() });
+    $("stmt").value = ""; $("expl").value = "";
+    $("editMsg").textContent = "문항을 추가했습니다. 현재 " + items.length + "문항입니다.";
+    save(); renderItems();
+  };
+
+  function show(id) {
+    ["edit", "play", "result"].forEach(function (s) { $(s).hidden = s !== id; });
+  }
+
+  function start() {
+    order = items.map(function (_, i) { return i; });
+    if ($("shuffle").checked) {
+      for (var i = order.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1)); var t = order[i]; order[i] = order[j]; order[j] = t;
+      }
+    }
+    idx = 0; correct = 0; wrongList = [];
+    show("play"); ask();
+  }
+
+  function ask() {
+    var it = items[order[idx]];
+    $("progress").textContent = (idx + 1) + " / " + order.length;
+    $("question").textContent = it.s;
+    $("feedback").textContent = "";
+    $("pickO").disabled = false; $("pickX").disabled = false;
+    $("next").hidden = true;
+  }
+
+  function pick(ans) {
+    var it = items[order[idx]];
+    $("pickO").disabled = true; $("pickX").disabled = true;
+    var fb = $("feedback");
+    fb.textContent = "";
+    var mark = document.createElement("span");
+    if (ans === it.a) { correct++; mark.className = "ok"; mark.textContent = "정답입니다. "; }
+    else { wrongList.push(it); mark.className = "no"; mark.textContent = "오답입니다. 정답은 " + it.a + "입니다. "; }
+    fb.appendChild(mark);
+    if (it.e) fb.appendChild(document.createTextNode(it.e));
+    $("next").textContent = idx + 1 < order.length ? "다음 문항" : "결과 보기";
+    $("next").hidden = false; $("next").focus();
+  }
+
+  function next() {
+    idx++;
+    if (idx < order.length) { ask(); return; }
+    $("score").textContent = order.length + "문항 중 " + correct + "문항 정답";
+    var ol = $("wrong"); ol.textContent = "";
+    wrongList.forEach(function (it) {
+      var li = document.createElement("li");
+      li.textContent = it.s + " (정답 " + it.a + ")" + (it.e ? " - " + it.e : "");
+      ol.appendChild(li);
+    });
+    $("wrongWrap").hidden = wrongList.length === 0;
+    show("result");
+  }
+
+  $("start").onclick = start;
+  $("pickO").onclick = function () { pick("O"); };
+  $("pickX").onclick = function () { pick("X"); };
+  $("next").onclick = next;
+  $("again").onclick = start;
+  $("toEdit").onclick = function () { show("edit"); };
+
+  renderItems(); save();
+})();
+</script>
+</body>
+</html>

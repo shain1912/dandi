@@ -39,3 +39,14 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Dandi 로컬 데이터(JSON 저장소·업로드 파일)
+/data
+
+# 빌드 때 생성되는 파일(CLI 배포 tarball, PDF 글꼴 맵)
+/public/dandi-*.tgz
+/public/cmaps
+/public/pdfjs
+/cli/build-info.json
+/public/dandi-latest.json
+/data.backup-*

@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>업무 문서 초안 생성기</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#666; --line:#ddd; --bg:#fff; --accent:#0b57d0; --notice:#fff4e5; --notice-fg:#8a4b00; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e8; --muted:#9a9a9a; --line:#3a3a3a; --bg:#121212; --accent:#8ab4f8; --notice:#3a2a10; --notice-fg:#ffcc80; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Malgun Gothic", sans-serif; color:var(--fg); background:var(--bg); line-height:1.55; }
+  main { max-width:1100px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:16px 0 8px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .notice { background:var(--notice); color:var(--notice-fg); padding:6px 10px; border-radius:4px; font-size:.9rem; }
+  .cols { display:grid; gap:20px; }
+  @media (min-width: 860px) { .cols { grid-template-columns: 1fr 1fr; } }
+  label.f { display:block; margin:0 0 10px; } label.f > span { display:block; font-size:.85rem; font-weight:600; }
+  input, textarea, button { font:inherit; }
+  input[type=text], textarea { width:100%; padding:6px 8px; min-height:40px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
+  fieldset { border:1px solid var(--line); border-radius:4px; margin:0 0 10px; }
+  fieldset label { display:inline-block; margin:2px 10px 2px 0; }
+  button { min-height:44px; padding:6px 12px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  button:disabled { opacity:.6; cursor:not-allowed; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:8px 0; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  #preview { background:#fff; color:#111; border:1px solid var(--line); border-radius:4px; padding:28px 24px; min-height:420px;
+    font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; font-size:.95rem; line-height:1.6; white-space:pre-wrap; word-break:keep-all; margin:0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>업무 문서 초안 생성기</h1>
+  <p class="muted">교과서 선정 협의록 초안을 공문서 형식으로 만듭니다. 입력 내용은 이 브라우저에만 임시 저장되고 서버로 전송되지 않습니다.</p>
+
+  <div class="cols">
+    <form id="form" autocomplete="off">
+      <h2>입력</h2>
+      <div class="grid2">
+        <label class="f"><span>학교명</span><input type="text" name="school" placeholder="예: 바다중학교"></label>
+        <label class="f"><span>학년도</span><input type="text" name="year" placeholder="예: 2027"></label>
+        <label class="f"><span>교과(목)</span><input type="text" name="subject" placeholder="예: 국어"></label>
+        <label class="f"><span>대상 학년</span><input type="text" name="grade" placeholder="예: 1학년"></label>
+        <label class="f"><span>협의 일시</span><input type="text" name="when" placeholder="예: 2026. 10. 7.(수) 15:00"></label>
+        <label class="f"><span>장소</span><input type="text" name="place" placeholder="예: 교과 협의실"></label>
+      </div>
+      <label class="f"><span>참석자 (실명 대신 직위·인원으로 적으십시오)</span><input type="text" name="attendees" placeholder="예: 국어과 교사 4명"></label>
+      <label class="f"><span>후보 도서 (한 줄에 하나: 출판사 / 대표 저자)</span><textarea name="candidates" rows="4" placeholder="예: 가나출판 / 대표 저자"></textarea></label>
+      <fieldset>
+        <legend>선정 기준</legend>
+        <label><input type="checkbox" name="criteria" value="교육과정 반영 정도" checked> 교육과정 반영</label>
+        <label><input type="checkbox" name="criteria" value="내용 구성과 체계" checked> 내용 구성</label>
+        <label><input type="checkbox" name="criteria" value="학생 수준 적합성" checked> 학생 수준 적합성</label>
+        <label><input type="checkbox" name="criteria" value="디지털 자료 지원"> 디지털 자료 지원</label>
+        <label><input type="checkbox" name="criteria" value="가격과 분량"> 가격·분량</label>
+      </fieldset>
+      <label class="f"><span>협의 내용 (한 줄에 한 항목)</span><textarea name="discussion" rows="5"></textarea></label>
+      <div class="grid2">
+        <label class="f"><span>1순위</span><input type="text" name="rank1"></label>
+        <label class="f"><span>2순위</span><input type="text" name="rank2"></label>
+        <label class="f"><span>3순위</span><input type="text" name="rank3"></label>
+      </div>
+    </form>
+
+    <section>
+      <h2>미리보기</h2>
+      <pre id="preview" aria-live="polite"></pre>
+      <div class="row">
+        <button type="button" class="primary" id="copy">텍스트 복사</button>
+        <button type="button" id="reset">입력 초기화</button>
+        <button type="button" disabled title="v1 확장 예정">hwpx 내보내기</button>
+      </div>
+      <p class="muted" id="msg" role="status"></p>
+      <p class="notice">hwpx 파일 내보내기는 v1 확장 기능입니다. 지금은 텍스트를 복사해 학교 양식 한글 문서에 붙여 넣으십시오.</p>
+    </section>
+  </div>
+</main>
+<script>
+(function () {
+  var KEY = "dandi-example-docgen";
+  var MARK = "가나다라마바사아자차카타파하".split("");
+  var form = document.getElementById("form");
+  function $(id) { return document.getElementById(id); }
+  function v(name) { var x = form.elements[name].value.trim(); return x || "(미입력)"; }
+  function lines(name) { return form.elements[name].value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean); }
+  function lettered(arr) {
+    if (!arr.length) return "   (미입력)";
+    return arr.map(function (s, i) { return "   " + (MARK[i] || "-") + ". " + s; }).join("\n");
+  }
+  function todayText() { var d = new Date(); return d.getFullYear() + ". " + (d.getMonth() + 1) + ". " + d.getDate() + "."; }
+
+  function build() {
+    var criteria = Array.prototype.filter.call(form.querySelectorAll('input[name="criteria"]'), function (c) { return c.checked; })
+      .map(function (c) { return c.value; });
+    var discussion = lines("discussion");
+    var ranks = ["rank1", "rank2", "rank3"].map(function (r, i) { return (i + 1) + "순위: " + v(r); });
+    return [
+      v("year") + "학년도 " + v("subject") + " 교과용 도서 선정 협의록",
+      "",
+      "1. 일    시: " + v("when"),
+      "2. 장    소: " + v("place"),
+      "3. 참 석 자: " + v("attendees"),
+      "4. 협의 안건: " + v("year") + "학년도 " + v("grade") + " " + v("subject") + " 교과용 도서 선정",
+      "5. 후보 도서",
+      lettered(lines("candidates")),
+      "6. 선정 기준",
+      lettered(criteria),
+      "7. 협의 내용",
+      discussion.length ? discussion.map(function (s) { return "   - " + s; }).join("\n") : "   (미입력)",
+      "8. 협의 결과",
+      lettered(ranks),
+      "",
+      "위와 같이 협의하였음.",
+      "",
+      todayText(),
+      "",
+      v("school") + " " + v("subject") + " 교과협의회"
+    ].join("\n");
+  }
+
+  function snapshot() {
+    var out = {};
+    Array.prototype.forEach.call(form.elements, function (el) {
+      if (!el.name) return;
+      if (el.type === "checkbox") { out["c:" + el.value] = el.checked; } else { out[el.name] = el.value; }
+    });
+    return out;
+  }
+  function restore(obj) {
+    Array.prototype.forEach.call(form.elements, function (el) {
+      if (!el.name) return;
+      if (el.type === "checkbox") { if (("c:" + el.value) in obj) el.checked = !!obj["c:" + el.value]; }
+      else if (typeof obj[el.name] === "string") { el.value = obj[el.name]; }
+    });
+  }
+
+  function update() {
+    $("preview").textContent = build();
+    try { localStorage.setItem(KEY, JSON.stringify(snapshot())); } catch (e) { /* 저장이 막힌 환경 */ }
+  }
+
+  try { var saved = JSON.parse(localStorage.getItem(KEY) || "null"); if (saved && typeof saved === "object") restore(saved); } catch (e) { /* 무시 */ }
+  if (!form.elements.year.value) form.elements.year.value = String(new Date().getFullYear() + 1);
+
+  form.addEventListener("input", update);
+  form.addEventListener("change", update);
+
+  $("reset").onclick = function () {
+    form.reset();
+    try { localStorage.removeItem(KEY); } catch (e) { /* 무시 */ }
+    form.elements.year.value = String(new Date().getFullYear() + 1);
+    update();
+    $("msg").textContent = "입력을 초기화했습니다.";
+  };
+
+  $("copy").onclick = function () {
+    var text = build();
+    function fallback() {
+      var ta = document.createElement("textarea");
+      ta.value = text; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      document.body.removeChild(ta);
+      if (!ok) {
+        var range = document.createRange(); range.selectNodeContents($("preview"));
+        var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      }
+      $("msg").textContent = ok ? "문서 텍스트를 복사했습니다." : "자동 복사가 막혀 있습니다. 선택된 미리보기를 Ctrl+C로 복사하십시오.";
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { $("msg").textContent = "문서 텍스트를 복사했습니다."; }, fallback);
+    } else { fallback(); }
+  };
+
+  update();
+})();
+</script>
+</body>
+</html>

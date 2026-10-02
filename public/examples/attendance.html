@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>학급 출석 체크 (좌석 번호)</title>
+<style>
+  :root { --fg:#1a1a1a; --muted:#666; --line:#ddd; --bg:#fff; --accent:#0b57d0; --notice:#eef3fd;
+    --s0:#e8f5e9; --s1:#fdecea; --s2:#fff4e5; --s3:#ede7f6; color-scheme: light dark; }
+  @media (prefers-color-scheme: dark) { :root { --fg:#e8e8e8; --muted:#9a9a9a; --line:#3a3a3a; --bg:#121212; --accent:#8ab4f8; --notice:#1c2533;
+    --s0:#17301c; --s1:#3b1a18; --s2:#3a2a10; --s3:#2a2140; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, "Malgun Gothic", sans-serif; color:var(--fg); background:var(--bg); line-height:1.55; }
+  main { max-width:720px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; } h2 { font-size:1.1rem; margin:20px 0 8px; }
+  .muted { color:var(--muted); font-size:.9rem; }
+  .notice { background:var(--notice); padding:8px 10px; border-radius:4px; font-size:.9rem; }
+  input, button, textarea { font:inherit; }
+  input[type=number] { width:80px; min-height:40px; padding:6px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
+  button { min-height:44px; padding:6px 12px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:8px 0; }
+  .seats { display:grid; gap:6px; margin:12px 0; }
+  .seat { min-height:56px; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1.2; }
+  .seat b { font-size:1.2rem; } .seat small { font-size:.8rem; }
+  .st0 { background:var(--s0); } .st1 { background:var(--s1); } .st2 { background:var(--s2); } .st3 { background:var(--s3); }
+  textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:4px; background:var(--bg); color:var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>학급 출석 체크</h1>
+  <p class="muted" id="today"></p>
+  <p class="notice">이 앱은 학생 이름을 받지 않고 좌석 번호만 사용합니다. 기록은 이 기기의 브라우저에만 남고 서버로 전송되지 않으며, 7일이 지나면 자동으로 지워집니다.</p>
+
+  <div class="row">
+    <label>학생 수 <input type="number" id="count" min="1" max="40"></label>
+    <label>한 줄 좌석 수 <input type="number" id="cols" min="4" max="8"></label>
+  </div>
+  <p class="muted">좌석을 누를 때마다 출석 → 결석 → 지각 → 조퇴 순서로 바뀝니다.</p>
+  <div class="seats" id="seats" role="group" aria-label="좌석"></div>
+
+  <h2>요약</h2>
+  <textarea id="summary" rows="3" readonly aria-label="출석 요약"></textarea>
+  <div class="row">
+    <button type="button" class="primary" id="copy">요약 복사</button>
+    <button type="button" id="reset">오늘 기록 초기화</button>
+    <span class="muted" id="msg" role="status"></span>
+  </div>
+</main>
+<script>
+(function () {
+  var KEY = "dandi-example-attendance";
+  var LABELS = ["출석", "결석", "지각", "조퇴"];
+  var SHORT = ["출", "결", "지", "조"];
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return (n < 10 ? "0" : "") + n; }
+  function ymd(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
+  var TODAY = ymd(new Date());
+
+  var data = { count: 28, cols: 6, days: {} };
+  try {
+    var v = JSON.parse(localStorage.getItem(KEY) || "null");
+    if (v && typeof v === "object" && v.days) data = v;
+  } catch (e) { /* 저장이 막힌 환경: 기본값으로 동작 */ }
+  function clamp(n, lo, hi, dflt) { n = parseInt(n, 10); return isNaN(n) ? dflt : Math.min(hi, Math.max(lo, n)); }
+  data.count = clamp(data.count, 1, 40, 28); data.cols = clamp(data.cols, 4, 8, 6);
+
+  // 7일이 지난 기록은 지운다(보관 기간 최소화).
+  var limit = new Date(); limit.setDate(limit.getDate() - 7);
+  var cut = ymd(limit);
+  Object.keys(data.days).forEach(function (k) { if (k < cut) delete data.days[k]; });
+  if (!data.days[TODAY]) data.days[TODAY] = {};
+
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(data)); }
+    catch (e) { $("msg").textContent = "이 환경에서는 저장할 수 없어 새로고침하면 기록이 사라집니다."; }
+  }
+
+  $("today").textContent = TODAY + " 출석";
+  $("count").value = data.count; $("cols").value = data.cols;
+
+  function renderSeats() {
+    var box = $("seats"); box.textContent = "";
+    box.style.gridTemplateColumns = "repeat(" + data.cols + ", 1fr)";
+    var day = data.days[TODAY];
+    for (var i = 1; i <= data.count; i++) {
+      var st = day[i] || 0;
+      var b = document.createElement("button");
+      b.type = "button"; b.className = "seat st" + st;
+      b.setAttribute("aria-label", i + "번 좌석, " + LABELS[st]);
+      var num = document.createElement("b"); num.textContent = i;
+      var lab = document.createElement("small"); lab.textContent = SHORT[st];
+      b.appendChild(num); b.appendChild(lab);
+      b.onclick = (function (n) { return function () {
+        var next = ((day[n] || 0) + 1) % 4;
+        if (next === 0) delete day[n]; else day[n] = next;
+        save(); renderSeats(); renderSummary();
+        var again = box.children[n - 1]; if (again) again.focus();
+      }; })(i);
+      box.appendChild(b);
+    }
+  }
+
+  function renderSummary() {
+    var day = data.days[TODAY];
+    var groups = [[], [], [], []];
+    for (var i = 1; i <= data.count; i++) groups[day[i] || 0].push(i);
+    var parts = ["재적 " + data.count, "출석 " + groups[0].length];
+    for (var s = 1; s < 4; s++) {
+      parts.push(LABELS[s] + " " + groups[s].length + (groups[s].length ? "(" + groups[s].join(", ") + "번)" : ""));
+    }
+    $("summary").value = TODAY + " 출석 요약: " + parts.join(", ");
+  }
+
+  function onSettings() {
+    data.count = clamp($("count").value, 1, 40, 28);
+    data.cols = clamp($("cols").value, 4, 8, 6);
+    var day = data.days[TODAY];
+    Object.keys(day).forEach(function (k) { if (Number(k) > data.count) delete day[k]; });
+    save(); renderSeats(); renderSummary();
+  }
+  $("count").onchange = onSettings; $("cols").onchange = onSettings;
+
+  $("reset").onclick = function () {
+    data.days[TODAY] = {}; save(); renderSeats(); renderSummary();
+    $("msg").textContent = "오늘 기록을 초기화했습니다.";
+  };
+
+  $("copy").onclick = function () {
+    var text = $("summary").value;
+    function fallback() {
+      var ta = $("summary"); ta.focus(); ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      $("msg").textContent = ok ? "요약을 복사했습니다." : "자동 복사가 막혀 있습니다. 선택된 요약을 Ctrl+C로 복사하십시오.";
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { $("msg").textContent = "요약을 복사했습니다."; }, fallback);
+    } else { fallback(); }
+  };
+
+  save(); renderSeats(); renderSummary();
+})();
+</script>
+</body>
+</html>

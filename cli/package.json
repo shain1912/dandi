@@ -1,0 +1,25 @@
+{
+  "name": "dandi-cli",
+  "version": "0.2.0",
+  "description": "Dandi 교사용 CLI: 브라우저 승인 로그인, 사이트 미리보기 배포, 허브 등록, 스킬, stdio MCP",
+  "type": "module",
+  "bin": {
+    "dandi": "dandi.mjs"
+  },
+  "files": [
+    "dandi.mjs",
+    "lib.mjs",
+    "core.mjs",
+    "mcp.mjs",
+    "build-info.json"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "dandi",
+    "cli",
+    "mcp",
+    "education"
+  ]
+}
